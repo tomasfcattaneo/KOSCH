@@ -407,6 +407,25 @@ CloseHandle(hMap);
 - **Ventajas:** Velocidad excepcional (latencia <1μs vs. 10-100μs en message passing; throughput >1GB/s). Baja CPU overhead, ideal para datos grandes.
 - **Desventajas:** Complejidad de sincronización (bugs comunes); seguridad baja (acceso directo expone a exploits); gestión manual de lifecycle. Comparado con message passing, shared memory es más rápido pero menos seguro y portable.
 
+### Primitive Shared Memory Setup (Polling-Based)
+Un enfoque simple para comunicación km-um usando memoria compartida con polling:
+
+1. **Asignación en User-Mode:** Alojar buffer en proceso user-mode.
+2. **Estructura Compartida:**
+   ```c
+   struct Shared {
+       bool Lock;        // 1: KM procesa; 0: listo para UM
+       uintptr_t PID;    // ID proceso objetivo
+       ushort Operation; // 0: leer Addr1 -> Addr2; 1: escribir Addr1 -> Addr2
+       uintptr_t Addr1, Addr2;
+       uint Sz;          // Bytes
+   };
+   ```
+3. **Loop en Driver:** Leer buffer constantemente; esperar Lock=1; procesar; set Lock=0.
+
+**Ventajas:** Simple, no IRP/IOCTL; bajo overhead si polling eficiente.
+**Desventajas:** Polling consume CPU; requiere loop oculto (e.g., APC); race conditions si no sincronizado. Mejor para prototipos que producción.
+
 En resumen, shared memory es poderosa para rendimiento, pero requiere expertise en concurrencia.
 
 ## License
