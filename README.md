@@ -426,6 +426,55 @@ Un enfoque simple para comunicación km-um usando memoria compartida con polling
 **Ventajas:** Simple, no IRP/IOCTL; bajo overhead si polling eficiente.
 **Desventajas:** Polling consume CPU; requiere loop oculto (e.g., APC); race conditions si no sincronizado. Mejor para prototipos que producción.
 
+## Deep Analysis: Shared Memory Integration for KOSCH
+
+### Architectural Integration
+KOSCH's current dispatch/bootstrap uses IOCTLs (3775 issued) via TBT for kernel calls, with NtClose gate for stealth. To integrate shared memory:
+
+- **Transition Strategy:** Extend dispatch with CMD_SETUP_SHARED_MEM. During loader init (Step 8), after bootstrap pre-fill, send CMD to allocate/map shared buffer. Driver maps kernel VA to UM VA via MmMapLockedPagesSpecifyCache or similar, writing VA back via bootstrap. Switch primary comm to shared buffer polling, keeping dispatch for fallbacks.
+
+- **Lifecycle Compatibility:** Maintain bootstrap for initial setup; shared memory for ops. No persistent hooks—use APC or timer for polling loop, hidden via thread camouflage.
+
+- **Performance Shift:** IOCTLs (~10μs latency) to shared memory (<1μs), reducing TBT overhead. Driver base (0xFFFF868182B34000) and bootstrap (0xFFFF868182B38000) remain anchors.
+
+### Memory Mapping Strategy
+- **Methodology:** In DriverEntry, allocate non-paged pool (MmAllocateNonCachedMemory) for shared buffer. Use MmProbeAndLockPages to lock, then MmMapLockedPages to map to UM VA in target PID (11124). Store mapping in global struct.
+
+- **Stealth Handling:** Allocate with MmAllocateContiguousMemory for contiguous PA, hide PTEs by clearing present bits or using hidden tables. Avoid ZwAllocateVirtualMemory to evade kernel alloc trackers.
+
+- **Integration Point:** Via dispatch_va (0xFFFF868182B35AB0), add handler to return mapped UM VA after setup.
+
+### Synchronization & Concurrency
+- **Mechanism:** Atomic ring buffer with head/tail indices. Use InterlockedIncrement for updates, avoiding mutexes. For events, lightweight KEVENT signaled via KeSetEvent.
+
+- **Low-Latency Design:** Producer (UM) writes to buffer, signals event; consumer (KM polling loop) reads, processes, signals back. Spinlocks for critical sections, but short to avoid ETW triggers.
+
+- **Concurrency Handling:** Buffer size 4KB+ for multiple cmds; wrap-around with atomic checks. Avoid PsCreateSystemThread for threads—use APC injection to hidden threads.
+
+### Security & Stealth
+- **Protection:** Map with PAGE_READWRITE but restrict via ACLs (though kernel). Hide allocation by not registering in PsLoadedModuleList analogs.
+
+- **Anti-Detection:** Use XOR encryption on buffer data; allocate in non-standard pools. For PTE hiding, modify page tables directly post-mapping.
+
+- **Access Control:** Only allow access from PID 11124; validate in polling loop.
+
+### Data Structure Design
+```c
+#define BUF_SIZE 4096
+struct KoschShared {
+    volatile LONG Head;     // Atomic head index
+    volatile LONG Tail;     // Atomic tail index
+    KEVENT Event;           // Lightweight event for signaling
+    struct Cmd {
+        UINT32 Magic;       // NX_MAGIC for validation
+        UINT32 CmdId;       // e.g., CMD_READ_MEM
+        UINT64 Data[8];     // Flexible fields: PID, Addr, etc.
+    } Ring[BUF_SIZE / sizeof(Cmd)];  // Ring buffer for cmds
+};
+```
+
+- **Optimization:** Aligned to cache lines (64B) to minimize misses. Ring layout for FIFO, atomic indices for lock-free enqueue/dequeue. Facilitates rapid cycles: UM enqueues cmd, signals; KM dequeues, processes, enqueues response.
+
 En resumen, shared memory es poderosa para rendimiento, pero requiere expertise en concurrencia.
 
 ## License
