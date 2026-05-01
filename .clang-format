@@ -1,0 +1,86 @@
+---
+Language: C
+BasedOnStyle: LLVM
+
+# Indentation
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+IndentCaseLabels: false
+IndentCaseBlocks: false
+IndentGotoLabels: true
+NamespaceIndentation: None
+IndentPPDirectives: None
+
+# Braces
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterStruct: true
+  AfterEnum: true
+  AfterUnion: true
+  AfterControlStatement: Never
+  AfterCaseLabel: false
+  BeforeElse: true
+  BeforeWhile: false
+  IndentBraces: false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+
+# Line width
+ColumnLimit: 90
+
+# Alignment
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: Consecutive
+AlignConsecutiveBitFields: Consecutive
+AlignConsecutiveDeclarations: false
+AlignConsecutiveMacros: Consecutive
+AlignEscapedNewlines: Left
+AlignOperands: Align
+AlignTrailingComments: true
+
+# Spaces
+SpaceAfterCStyleCast: false
+SpaceBeforeParens: ControlStatements
+SpaceBeforeSquareBrackets: false
+SpaceInEmptyBlock: false
+SpaceInEmptyParentheses: false
+SpacesInCStyleCastParentheses: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+SpacesBeforeTrailingComments: 2
+
+# Pointers
+PointerAlignment: Right
+DerivePointerAlignment: false
+
+# Includes
+SortIncludes: false
+IncludeBlocks: Preserve
+
+# Short forms — keep single-statement bodies on one line where readable
+AllowShortBlocksOnASingleLine: Empty
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+
+# Breaking
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+AllowAllParametersOfDeclarationOnNextLine: true
+BinPackArguments: true
+BinPackParameters: true
+PenaltyBreakAssignment: 25
+PenaltyBreakBeforeFirstCallParameter: 50
+PenaltyReturnTypeOnItsOwnLine: 200
+
+# Misc
+ReflowComments: true
+InsertBraces: false
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: false
+SeparateDefinitionBlocks: Always
+...
