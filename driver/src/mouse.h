@@ -29,7 +29,7 @@ typedef VOID (*MouseClassServiceCallbackFn)(
 typedef struct _MOUSE_OBJECT {
     PDEVICE_OBJECT mouse_device;
     MouseClassServiceCallbackFn service_callback;
-    BOOL use_mouse;
+    BOOLEAN use_mouse;
 } MOUSE_OBJECT, * PMOUSE_OBJECT;
 
 extern MOUSE_OBJECT gMouseObject;

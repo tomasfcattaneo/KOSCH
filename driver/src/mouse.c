@@ -1,6 +1,18 @@
 /* безликий - Adapted from Zodiak */
 #include "mouse.h"
 #include <ntstrsafe.h>
+#pragma warning(disable : 4013)
+
+NTSYSAPI NTSTATUS NTAPI ObReferenceObjectByName(
+    PUNICODE_STRING ObjectName,
+    ULONG Attributes,
+    PACCESS_STATE AccessState,
+    ACCESS_MASK DesiredAccess,
+    POBJECT_TYPE ObjectType,
+    KPROCESSOR_MODE AccessMode,
+    PVOID ParseContext,
+    PVOID *Object
+);
 
 MOUSE_OBJECT gMouseObject;
 

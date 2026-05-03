@@ -3,6 +3,31 @@
 #include "globals.h"
 #include "sysinfo.h"
 
+typedef struct _PEB_LDR_DATA {
+    ULONG Length;
+    BOOLEAN Initialized;
+    PVOID SsHandle;
+    LIST_ENTRY InLoadOrderModuleList;
+    LIST_ENTRY InMemoryOrderModuleList;
+    LIST_ENTRY InInitializationOrderModuleList;
+} PEB_LDR_DATA, *PPEB_LDR_DATA;
+
+typedef struct _LDR_DATA_TABLE_ENTRY {
+    LIST_ENTRY InLoadOrderLinks;
+    LIST_ENTRY InMemoryOrderLinks;
+    LIST_ENTRY InInitializationOrderLinks;
+    PVOID DllBase;
+    PVOID EntryPoint;
+    ULONG SizeOfImage;
+    UNICODE_STRING FullDllName;
+    UNICODE_STRING BaseDllName;
+    ULONG Flags;
+    USHORT LoadCount;
+    USHORT TlsIndex;
+    LIST_ENTRY HashTableEntry;
+    ULONG TimeDateStamp;
+} LDR_DATA_TABLE_ENTRY, *PLDR_DATA_TABLE_ENTRY;
+
 #define HK_MmCopyVirtualMemory 0x9232E176u
 
 typedef NTSTATUS(NTAPI *PMmCopyVirtualMemory)(PEPROCESS, PVOID, PEPROCESS, PVOID, SIZE_T,
@@ -147,23 +172,22 @@ NTSTATUS Vx_GetModuleBase(HANDLE pid, PCWSTR module_name, UINT64 *base)
             return STATUS_NOT_FOUND;
         }
 
-        PEB64 peb;
-        RtlCopyMemory(&peb, (PVOID)(ULONG_PTR)peb_addr, sizeof(peb));
-        if (!peb.Ldr) {
+        UINT64 ldr_addr = *(UINT64 *)((VOID*)( (ULONG_PTR)peb_addr + 0x18 ));
+        if (!ldr_addr) {
             KeUnstackDetachProcess(&apc);
             ObDereferenceObject(proc);
             return STATUS_NOT_FOUND;
         }
 
         PEB_LDR_DATA ldr;
-        RtlCopyMemory(&ldr, (PVOID)(ULONG_PTR)peb.Ldr, sizeof(ldr));
+        RtlCopyMemory(&ldr, (PVOID)(ULONG_PTR)ldr_addr, sizeof(PEB_LDR_DATA));
 
-        UINT64 head_addr = peb.Ldr + FIELD_OFFSET(PEB_LDR_DATA, InLoadOrderModuleList);
+        UINT64 head_addr = ldr_addr + FIELD_OFFSET(PEB_LDR_DATA, InLoadOrderModuleList);
         UINT64 cur_addr  = (UINT64)(ULONG_PTR)ldr.InLoadOrderModuleList.Flink;
 
         for (ULONG i = 0; i < 256 && cur_addr != head_addr; i++) {
-            LDR_DATA_TABLE_ENTRY64 entry;
-            RtlCopyMemory(&entry, (PVOID)(ULONG_PTR)cur_addr, sizeof(entry));
+            LDR_DATA_TABLE_ENTRY entry;
+            RtlCopyMemory(&entry, (PVOID)(ULONG_PTR)cur_addr, sizeof(LDR_DATA_TABLE_ENTRY));
 
             if (entry.BaseDllName.Length > 0 && entry.BaseDllName.Buffer) {
                 WCHAR name[128];
@@ -175,7 +199,7 @@ NTSTATUS Vx_GetModuleBase(HANDLE pid, PCWSTR module_name, UINT64 *base)
                 RtlInitUnicodeString(&us_name, name);
                 RtlInitUnicodeString(&us_target, module_name);
                 if (RtlEqualUnicodeString(&us_name, &us_target, TRUE)) {
-                    *base = entry.DllBase;
+                    *base = (UINT64)(ULONG_PTR)entry.DllBase;
                     KeUnstackDetachProcess(&apc);
                     ObDereferenceObject(proc);
                     return STATUS_SUCCESS;

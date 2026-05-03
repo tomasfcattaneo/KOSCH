@@ -1,9 +1,87 @@
 /* безликий */
+#include <ntifs.h>
 #include "aimbot.h"
 #include "mouse.h"
 #include "memory.h"
 #include "sysinfo.h"
 #include <ntstrsafe.h>
+#pragma warning(disable : 4013 4133 4244 4047)
+
+#define POOL_TAG 'hcos'
+#define SystemProcessInformation 5
+
+typedef struct _SYSTEM_PROCESS_INFORMATION {
+    ULONG NextEntryOffset;
+    ULONG NumberOfThreads;
+    LARGE_INTEGER WorkingSetPrivateSize;
+    ULONG HardFaultCount;
+    ULONG NumberOfThreadsHighWatermark;
+    ULONGLONG CycleTime;
+    LARGE_INTEGER CreateTime;
+    LARGE_INTEGER UserTime;
+    LARGE_INTEGER KernelTime;
+    UNICODE_STRING ImageName;
+    KPRIORITY BasePriority;
+    HANDLE UniqueProcessId;
+    HANDLE InheritedFromUniqueProcessId;
+    ULONG HandleCount;
+    ULONG SessionId;
+    ULONG_PTR UniqueProcessKey;
+    SIZE_T PeakVirtualSize;
+    SIZE_T VirtualSize;
+    ULONG PageFaultCount;
+    SIZE_T PeakWorkingSetSize;
+    SIZE_T WorkingSetSize;
+    SIZE_T QuotaPeakPagedPoolUsage;
+    SIZE_T QuotaPagedPoolUsage;
+    SIZE_T QuotaPeakNonPagedPoolUsage;
+    SIZE_T QuotaNonPagedPoolUsage;
+    SIZE_T PagefileUsage;
+    SIZE_T PeakPagefileUsage;
+    SIZE_T PrivatePageCount;
+    SIZE_T ReadOperationCount;
+    SIZE_T WriteOperationCount;
+    SIZE_T OtherOperationCount;
+    SIZE_T ReadTransferCount;
+    SIZE_T WriteTransferCount;
+    SIZE_T OtherTransferCount;
+} SYSTEM_PROCESS_INFORMATION, *PSYSTEM_PROCESS_INFORMATION;
+
+int _fltused = 0;
+
+static HANDLE Sx_FindPidByName(const WCHAR* name) {
+    ULONG len = 0;
+    ZwQuerySystemInformation(SystemProcessInformation, NULL, 0, &len);
+    if (len == 0) return NULL;
+
+    PSYSTEM_PROCESS_INFORMATION info = ExAllocatePool2(POOL_FLAG_NON_PAGED, len, POOL_TAG);
+    if (!info) return NULL;
+
+    NTSTATUS status = ZwQuerySystemInformation(SystemProcessInformation, info, len, &len);
+    if (!NT_SUCCESS(status)) {
+        ExFreePoolWithTag(info, POOL_TAG);
+        return NULL;
+    }
+
+    UNICODE_STRING target;
+    RtlInitUnicodeString(&target, name);
+
+    PSYSTEM_PROCESS_INFORMATION current = info;
+    while (TRUE) {
+        if (current->ImageName.Buffer) {
+            if (RtlEqualUnicodeString(&current->ImageName, &target, TRUE)) {
+                HANDLE pid = current->UniqueProcessId;
+                ExFreePoolWithTag(info, POOL_TAG);
+                return pid;
+            }
+        }
+        if (current->NextEntryOffset == 0) break;
+        current = (PSYSTEM_PROCESS_INFORMATION)((PUCHAR)current + current->NextEntryOffset);
+    }
+
+    ExFreePoolWithTag(info, POOL_TAG);
+    return NULL;
+}
 
 // Global variables
 static BOOLEAN g_AimbotRunning = FALSE;
@@ -66,7 +144,7 @@ NTSTATUS ReadGameEntities(HANDLE pid, UINT64 hw_base, game_state_t *state) {
 // Calculate best target (closest to center)
 int CalculateTarget(game_state_t *state, Vector2 screen_center) {
     int best = -1;
-    float min_dist = FLT_MAX;
+    int min_dist_sq = 999999;
     for (int i = 0; i < MAX_ENTITIES; i++) {
         if (state->players[i].health <= 0 || state->players[i].team == 1) continue; // Own team
 
@@ -77,10 +155,10 @@ int CalculateTarget(game_state_t *state, Vector2 screen_center) {
         screen_pos.x = state->players[i].origin.x * 10; // Placeholder
         screen_pos.y = state->players[i].origin.y * 10;
 
-        float dist = sqrt((screen_pos.x - screen_center.x) * (screen_pos.x - screen_center.x) +
-                          (screen_pos.y - screen_center.y) * (screen_pos.y - screen_center.y));
-        if (dist < min_dist) {
-            min_dist = dist;
+        int dist_sq = (screen_pos.x - screen_center.x) * (screen_pos.x - screen_center.x) +
+                      (screen_pos.y - screen_center.y) * (screen_pos.y - screen_center.y);
+        if (dist_sq < min_dist_sq) {
+            min_dist_sq = dist_sq;
             best = i;
         }
     }
