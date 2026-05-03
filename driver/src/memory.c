@@ -130,3 +130,62 @@ NTSTATUS Vx_Translate(HANDLE pid, UINT64 va, UINT64 *pa)
     *pa = (pte & 0x000FFFFFFFFFF000ULL) | (va & 0xFFFULL);
     return STATUS_SUCCESS;
 }
+
+NTSTATUS Vx_GetModuleBase(HANDLE pid, PCWSTR module_name, UINT64 *base)
+{
+    PEPROCESS proc = Sx_FindProcess(pid);
+    if (!proc) return STATUS_NOT_FOUND;
+
+    KAPC_STATE apc;
+    KeStackAttachProcess(proc, &apc);
+
+    __try {
+        UINT64 peb_addr = *(UINT64 *)((UCHAR *)proc + g_Offsets.eprocess_peb);
+        if (!peb_addr) {
+            KeUnstackDetachProcess(&apc);
+            ObDereferenceObject(proc);
+            return STATUS_NOT_FOUND;
+        }
+
+        PEB64 peb;
+        RtlCopyMemory(&peb, (PVOID)(ULONG_PTR)peb_addr, sizeof(peb));
+        if (!peb.Ldr) {
+            KeUnstackDetachProcess(&apc);
+            ObDereferenceObject(proc);
+            return STATUS_NOT_FOUND;
+        }
+
+        PEB_LDR_DATA ldr;
+        RtlCopyMemory(&ldr, (PVOID)(ULONG_PTR)peb.Ldr, sizeof(ldr));
+
+        UINT64 head_addr = peb.Ldr + FIELD_OFFSET(PEB_LDR_DATA, InLoadOrderModuleList);
+        UINT64 cur_addr  = (UINT64)(ULONG_PTR)ldr.InLoadOrderModuleList.Flink;
+
+        for (ULONG i = 0; i < 256 && cur_addr != head_addr; i++) {
+            LDR_DATA_TABLE_ENTRY64 entry;
+            RtlCopyMemory(&entry, (PVOID)(ULONG_PTR)cur_addr, sizeof(entry));
+
+            if (entry.BaseDllName.Length > 0 && entry.BaseDllName.Buffer) {
+                WCHAR name[128];
+                RtlZeroMemory(name, sizeof(name));
+                USHORT copy_len = min(entry.BaseDllName.Length, sizeof(name) - 2);
+                RtlCopyMemory(name, (PVOID)(ULONG_PTR)entry.BaseDllName.Buffer, copy_len);
+
+                UNICODE_STRING us_name, us_target;
+                RtlInitUnicodeString(&us_name, name);
+                RtlInitUnicodeString(&us_target, module_name);
+                if (RtlEqualUnicodeString(&us_name, &us_target, TRUE)) {
+                    *base = entry.DllBase;
+                    KeUnstackDetachProcess(&apc);
+                    ObDereferenceObject(proc);
+                    return STATUS_SUCCESS;
+                }
+            }
+            cur_addr = (UINT64)(ULONG_PTR)entry.InLoadOrderLinks.Flink;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+
+    KeUnstackDetachProcess(&apc);
+    ObDereferenceObject(proc);
+    return STATUS_NOT_FOUND;
+}

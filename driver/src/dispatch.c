@@ -6,6 +6,7 @@
 #include "dkom.h"
 #include "sysinfo.h"
 #include "ntdefs.h"
+#include "aimbot.h"
 
 static void write_response(PVOID buffer, UINT32 status_code, UINT64 value)
 {
@@ -160,6 +161,20 @@ static NTSTATUS handle_query_state(PVOID buffer)
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS handle_create_aimbot_thread(PVOID buffer)
+{
+    NTSTATUS status = AimbotInit();
+    write_response(buffer, NT_SUCCESS(status) ? 0 : 1, 0);
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS handle_stop_aimbot_thread(PVOID buffer)
+{
+    NTSTATUS status = AimbotStop();
+    write_response(buffer, NT_SUCCESS(status) ? 0 : 1, 0);
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS Dx_Route(PVOID buffer, ULONG size)
 {
     DX_HDR *hdr = (DX_HDR *)buffer;
@@ -181,6 +196,8 @@ NTSTATUS Dx_Route(PVOID buffer, ULONG size)
     case CMD_HIDE_DRIVER: write_response(buffer, 1, 0); return STATUS_SUCCESS;
     case CMD_TRANSLATE_VA: return handle_translate_va(buffer, size);
     case CMD_QUERY_STATE: return handle_query_state(buffer);
+    case CMD_CREATE_AIMBOT_THREAD: return handle_create_aimbot_thread(buffer);
+    case CMD_STOP_AIMBOT_THREAD: return handle_stop_aimbot_thread(buffer);
     default: write_response(buffer, 1, 0); return STATUS_INVALID_PARAMETER;
     }
 }
