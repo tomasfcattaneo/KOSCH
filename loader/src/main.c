@@ -13,6 +13,7 @@
 #include "xor.h"
 #include "peb.h"
 #include "crypt.h"
+#include "test.h"
 
 #include <windows.h>
 #include <stdio.h>
@@ -20,6 +21,25 @@
 #include <intrin.h>
 
 #include "koshchei_drv.h"
+
+int SendDriverCommand(int cmd, void* req, size_t req_size, void* rsp)
+{
+    if (!g_cmd_buf || !g_dispatch_va) return -1;
+
+    DX_HDR* hdr = (DX_HDR*)g_cmd_buf;
+    hdr->magic = NX_MAGIC;
+    hdr->cmd = cmd;
+    hdr->size = sizeof(DX_HDR) + (uint32_t)req_size;
+
+    memcpy((uint8_t*)g_cmd_buf + sizeof(DX_HDR), req, req_size);
+
+    uint64_t ret = 0;
+    Result r = Nk_Call(&g_gate, g_dispatch_va, (uint64_t)(uintptr_t)g_cmd_buf, 0, 0, &ret);
+    if (IS_ERR(r)) return -1;
+
+    memcpy(rsp, g_cmd_buf, sizeof(DX_RSP) + (((DX_RSP*)g_cmd_buf)->value ? DX_BUF_SIZE - sizeof(DX_RSP) : 0));
+    return 0;
+}
 
 static void secure_free(void *ptr, size_t len)
 {
@@ -97,6 +117,10 @@ static Result prefill_bootstrap(ZvCtx *tbt, MxImage *img, LxImage *pe, const uin
     LOG_INF("  bootstrap written at 0x%llX (pid=%u)", bootstrap_va, pid);
     return OK_VAL(bootstrap_va);
 }
+
+void* g_cmd_buf = NULL;
+uint64_t g_dispatch_va = 0;
+NkCtx g_gate;
 
 int main(void)
 {
@@ -254,6 +278,26 @@ int main(void)
             LOG_ERR("  ping mismatch");
             goto cleanup_gate;
         }
+    }
+
+    LOG_INF("[INF] Testing memory read of hl.exe...");
+    DWORD pid = FindProcessId(L"hl.exe");
+    if (pid) {
+        LOG_INF("[INF] hl.exe PID: %lu", pid);
+        UINT64 client = GetModuleBase(pid, L"client.dll");
+        if (client) {
+            LOG_INF("[INF] client.dll @ 0x%llx", client);
+            int health = 0;
+            if (ReadMemory(pid, client + 0x187704, &health, sizeof(health))) {
+                LOG_INF("[INF] Player health = %d", health);
+            } else {
+                LOG_ERR("[ERR] Failed to read health");
+            }
+        } else {
+            LOG_ERR("[ERR] client.dll not found");
+        }
+    } else {
+        LOG_WRN("[WRN] hl.exe not running");
     }
 
     driver_ok = true;
